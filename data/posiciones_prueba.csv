@@ -1,0 +1,9 @@
+﻿id_posicion;ubicacion;cota_apoyo_mm;altura_min_mm;altura_max_mm;familia_admitida
+POS001;Sector 1;10000;3000;3150;F01
+POS002;Sector 1;10300;3100;3200;F01
+POS003;Sector 2;10600;3000;3050;F02
+POS004;Sector 2;10900;3150;3300;F02
+POS005;Sector 3;11200;3000;3100;F03
+POS006;Sector 3;11500;3250;3350;F03
+POS007;Sector 4;11800;3300;3400;F01
+POS008;Sector 4;12100;2800;2900;F02

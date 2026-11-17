@@ -1,0 +1,4 @@
+id_posicion;ubicacion;cota_apoyo_mm;altura_min_mm;altura_max_mm;familia_admitida
+A;Sector A;12500;3000;3150;F01
+B;Sector B;13000;3100;3250;F01
+C;Sector C;15000;3300;3400;F01

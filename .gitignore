@@ -1,0 +1,32 @@
+# Python: caché y archivos compilados
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Archivos temporales y de herramientas
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Compilación y distribución de PyInstaller
+build/
+dist/
+installer_output/
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Configuración local de editores (quitar esta regla si el equipo quiere compartirla)
+.vscode/
+.idea/
