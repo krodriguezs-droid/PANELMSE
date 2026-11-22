@@ -8,7 +8,7 @@ PANELMSE es una aplicación de escritorio desarrollada en Python para apoyar la 
 
 ## Funciones
 
-- Registro del responsable, nombre del proyecto y fecha indicada por el usuario.
+- Registro del responsable, nombre tanto de proyecto y fecha indicada por el usuario.
 - Selección de los archivos CSV de paneles y posiciones.
 - Lectura y validación de los datos de entrada.
 - Asignación de paneles a posiciones compatibles, buscando maximizar la cantidad de posiciones cubiertas.
