@@ -47,6 +47,8 @@ class Panel:
 # altura_min_mm: altura mínima permitida.
 # altura_max_mm: altura máxima permitida.
 # familia_admitida: familia compatible con la posición.
+# orden: posición consecutiva que ocupa en el muro,
+# comenzando desde 1.
 # ============================================================
 
 @dataclass
@@ -57,3 +59,4 @@ class Posicion:
     altura_min_mm: int
     altura_max_mm: int
     familia_admitida: str
+    orden: int = 0

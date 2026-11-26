@@ -27,9 +27,11 @@ COLUMNAS_PANELES = {
     "altura_mm",
     "familia",
     "disponible"
+
 }
 
-COLUMNAS_POSICIONES = {
+COLUMNAS_POSICIONES = {    
+    "orden",
     "id_posicion",
     "ubicacion",
     "cota_apoyo_mm",
@@ -278,17 +280,19 @@ def validar_paneles(
     return paneles, errores_totales
 
 
+
 # ============================================================
 # BLOQUE 9: VALIDACIÓN DE POSICIONES
-# FUNCIÓN:
-# Revisar los registros del archivo de posiciones.
-# Comprobar cotas e intervalos de altura.
-# Normalizar identificadores y familias.
-# Convertir cada registro válido en un objeto Posicion.
 #
-# RESULTADO:
-# Devuelve una lista de posiciones válidas y una lista
-# de errores.
+# Comprueba los datos de cada posición y su orden dentro
+# del muro.
+#
+# REGLAS NUEVAS:
+# - El orden debe comenzar en 1.
+# - No se permiten órdenes negativos ni iguales a cero.
+# - No se permiten órdenes repetidos.
+# - La secuencia debe ser consecutiva.
+# - Las posiciones se devuelven ordenadas por su número.
 # ============================================================
 
 def validar_posiciones(
@@ -298,7 +302,11 @@ def validar_posiciones(
 
     posiciones = []
     errores_totales = []
+
     ids_vistos = set()
+    ordenes_vistos = set()
+
+    ordenes_validos = True
 
     # Comprobar los encabezados.
     errores_encabezados = validar_encabezados(
@@ -315,42 +323,89 @@ def validar_posiciones(
 
         errores_fila = []
 
-        # Normalizar el identificador.
+        # ----------------------------------------------------
+        # VALIDAR ORDEN
+        # ----------------------------------------------------
+
+        orden = convertir_entero(
+            fila.get("orden"),
+            "orden",
+            nombre_archivo,
+            numero_fila,
+            errores_fila
+        )
+
+        if orden is None:
+
+            ordenes_validos = False
+
+        elif orden < 1:
+
+            errores_fila.append(
+                f"{nombre_archivo}, fila {numero_fila}: "
+                "el orden debe ser mayor o igual a 1."
+            )
+
+            ordenes_validos = False
+
+        elif orden in ordenes_vistos:
+
+            errores_fila.append(
+                f"{nombre_archivo}, fila {numero_fila}: "
+                f"el orden '{orden}' está repetido."
+            )
+
+            ordenes_validos = False
+
+        else:
+
+            ordenes_vistos.add(orden)
+
+        # ----------------------------------------------------
+        # VALIDAR IDENTIFICADOR
+        # ----------------------------------------------------
+
         id_posicion = normalizar_identificador(
             fila.get("id_posicion")
         )
 
-        # Comprobar identificador vacío.
         if not id_posicion:
+
             errores_fila.append(
                 f"{nombre_archivo}, fila {numero_fila}: "
                 "el identificador de la posición está vacío."
             )
 
-        # Detectar identificadores repetidos.
         elif id_posicion in ids_vistos:
+
             errores_fila.append(
                 f"{nombre_archivo}, fila {numero_fila}: "
                 f"el identificador '{id_posicion}' está repetido."
             )
 
         else:
+
             ids_vistos.add(id_posicion)
 
-        # Leer la ubicación.
+        # ----------------------------------------------------
+        # VALIDAR UBICACIÓN
+        # ----------------------------------------------------
+
         ubicacion = limpiar_texto(
             fila.get("ubicacion")
         )
 
         if not ubicacion:
+
             errores_fila.append(
                 f"{nombre_archivo}, fila {numero_fila}: "
                 "la ubicación está vacía."
             )
 
-        # Convertir la cota de apoyo.
-        # Se permiten valores negativos porque dependen
-        # del sistema de referencia o datum de la obra.
+        # ----------------------------------------------------
+        # VALIDAR COTA DE APOYO
+        # ----------------------------------------------------
+
         cota_apoyo = convertir_entero(
             fila.get("cota_apoyo_mm"),
             "cota_apoyo_mm",
@@ -360,7 +415,10 @@ def validar_posiciones(
             permitir_negativo=True
         )
 
-        # Convertir la altura mínima.
+        # ----------------------------------------------------
+        # VALIDAR ALTURA MÍNIMA
+        # ----------------------------------------------------
+
         altura_min = convertir_entero(
             fila.get("altura_min_mm"),
             "altura_min_mm",
@@ -369,7 +427,10 @@ def validar_posiciones(
             errores_fila
         )
 
-        # Convertir la altura máxima.
+        # ----------------------------------------------------
+        # VALIDAR ALTURA MÁXIMA
+        # ----------------------------------------------------
+
         altura_max = convertir_entero(
             fila.get("altura_max_mm"),
             "altura_max_mm",
@@ -378,29 +439,37 @@ def validar_posiciones(
             errores_fila
         )
 
-        # Verificar que el intervalo no esté invertido.
+        # Comprobar que el intervalo no esté invertido.
         if (
             altura_min is not None
             and altura_max is not None
             and altura_min > altura_max
         ):
+
             errores_fila.append(
                 f"{nombre_archivo}, fila {numero_fila}: "
                 "la altura mínima es mayor que la altura máxima."
             )
 
-        # Normalizar la familia admitida.
+        # ----------------------------------------------------
+        # VALIDAR FAMILIA
+        # ----------------------------------------------------
+
         familia = normalizar_familia(
             fila.get("familia_admitida")
         )
 
         if not familia:
+
             errores_fila.append(
                 f"{nombre_archivo}, fila {numero_fila}: "
                 "la familia admitida está vacía."
             )
 
-        # Crear el objeto únicamente si la fila es válida.
+        # ----------------------------------------------------
+        # CREAR OBJETO POSICIÓN
+        # ----------------------------------------------------
+
         if not errores_fila:
 
             posicion = Posicion(
@@ -409,12 +478,68 @@ def validar_posiciones(
                 cota_apoyo_mm=cota_apoyo,
                 altura_min_mm=altura_min,
                 altura_max_mm=altura_max,
-                familia_admitida=familia
+                familia_admitida=familia,
+                orden=orden
             )
 
             posiciones.append(posicion)
 
-        # Acumular errores de la fila.
         errores_totales.extend(errores_fila)
 
+    # --------------------------------------------------------
+    # COMPROBAR QUE LA SECUENCIA SEA CONSECUTIVA
+    # --------------------------------------------------------
+
+    if ordenes_validos:
+
+        ordenes_esperados = set(
+            range(1, len(filas) + 1)
+        )
+
+        ordenes_faltantes = (
+            ordenes_esperados - ordenes_vistos
+        )
+
+        ordenes_fuera_rango = (
+            ordenes_vistos - ordenes_esperados
+        )
+
+        if ordenes_faltantes or ordenes_fuera_rango:
+
+            detalles = []
+
+            if ordenes_faltantes:
+
+                detalles.append(
+                    "faltan los órdenes: "
+                    + ", ".join(
+                        map(str, sorted(ordenes_faltantes))
+                    )
+                )
+
+            if ordenes_fuera_rango:
+
+                detalles.append(
+                    "están fuera de la secuencia esperada: "
+                    + ", ".join(
+                        map(str, sorted(ordenes_fuera_rango))
+                    )
+                )
+
+            errores_totales.append(
+                f"{nombre_archivo}: la columna 'orden' "
+                "debe ser consecutiva desde 1. "
+                + "; ".join(detalles)
+                + "."
+            )
+
+    # --------------------------------------------------------
+    # ORDENAR POSICIONES
+    # --------------------------------------------------------
+
+    posiciones.sort(
+        key=lambda posicion: posicion.orden
+    )
+
     return posiciones, errores_totales
+

@@ -27,7 +27,7 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Files]
 Source: "dist\PANELMSE\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "src\panelmse\assets\PANELMSE.ico"; DestDir: "{app}"; Flags: ignoreversion
-
+Source: "data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{autodesktop}\PANELMSE"; Filename: "{app}\PANELMSE.exe"; IconFilename: "{app}\PANELMSE.ico"; IconIndex: 0
 

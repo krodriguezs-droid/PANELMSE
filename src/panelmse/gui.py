@@ -5,8 +5,10 @@
 # ============================================================
 
 # Permite manejar las rutas y los nombres de los archivos.
+import calendar
 import csv
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 # Permite abrir ventanas para seleccionar archivos y mostrar mensajes.
@@ -30,6 +32,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
 # Componentes para construir el documento y sus tablas.
 from reportlab.platypus import (
+    LayoutError,
     LongTable,
     Paragraph,
     SimpleDocTemplate,
@@ -39,7 +42,8 @@ from reportlab.platypus import (
 )
 
 # Importamos la función principal de procesamiento.
-from .main import procesar_archivos
+from .main import procesar_archivos, procesar_archivos_con_geometria
+from .wall_geometry import calcular_distribucion_longitud
 
 # ============================================================
 # BLOQUE 2: DEFINIR LA VENTANA PRINCIPAL
@@ -66,6 +70,15 @@ class PanelMSEApp(ctk.CTk):
         # ============================================================
 
         self.datos_proyecto = None
+        self.datos_geometria = None
+        # ============================================================
+        # DATOS DEL SELECTOR DE FECHA
+        # ============================================================
+
+        self.fecha_seleccionada = None
+        self.calendario_ventana = None
+        self.calendario_anio = None
+        self.calendario_mes = None
 
         # Continúa aquí el resto de la configuración...
 
@@ -360,116 +373,331 @@ class PanelMSEApp(ctk.CTk):
         )
 
         # ------------------------------------------------------------
-        # FECHA DEL PROYECTO
-        # Tres campos numéricos separados visualmente por guiones.
+        # SELECTOR DE FECHA DEL PROYECTO
         # ------------------------------------------------------------
 
         self.fecha_frame = ctk.CTkFrame(
-            self.project_section,
-            fg_color="transparent"
+        self.project_section,
+        fg_color="transparent"
+        )
+ 
+        self.fecha_frame.grid(
+        row=3,
+        column=1,
+        padx=20,
+        pady=10,
+        sticky="w"
         )
 
-        self.fecha_frame.grid(
-            row=3,
-            column=1,
+        # Campo donde se mostrará la fecha seleccionada.
+        self.fecha_entry = ctk.CTkEntry(
+        self.fecha_frame,
+        width=150,
+        height=35,
+        placeholder_text="Selecciona una fecha"
+        )
+
+        self.fecha_entry.grid(
+        row=0,
+        column=0,
+        padx=(0, 8)
+        )
+
+        self.fecha_entry.configure(state="disabled")
+
+        # Botón para abrir el calendario.
+        self.fecha_calendario_button = ctk.CTkButton(
+        self.fecha_frame,
+        text="Seleccionar fecha",
+        width=145,
+        height=35,
+        fg_color="#192B40",
+        hover_color="#263E59",
+        text_color="#FFFFFF",
+        command=self.abrir_calendario
+        )
+
+        self.fecha_calendario_button.grid(
+        row=0,
+        column=1
+        )
+
+        # ============================================================
+        # BLOQUE: DIMENSIONES Y CONFIGURACION DEL MURO
+        # ============================================================
+
+        self.geometry_frame = ctk.CTkFrame(
+            self.project_section,
+            fg_color="#E9EEF3",
+            corner_radius=10
+        )
+
+        self.geometry_frame.grid(
+            row=4,
+            column=0,
+            columnspan=2,
             padx=20,
-            pady=10,
+            pady=(12, 8),
+            sticky="ew"
+        )
+
+        # Configurar las columnas internas.
+        for columna in range(4):
+            self.geometry_frame.grid_columnconfigure(
+                columna,
+                weight=1 if columna in (1, 3) else 0
+            )
+
+        # ------------------------------------------------------------
+        # TITULO
+        # ------------------------------------------------------------
+
+        self.geometry_title = ctk.CTkLabel(
+            self.geometry_frame,
+            text="DIMENSIONES Y PERFIL DEL MURO",
+            font=("Arial", 15, "bold"),
+            text_color="#192B40"
+        )
+
+        self.geometry_title.grid(
+            row=0,
+            column=0,
+            columnspan=4,
+            padx=15,
+            pady=(12, 10),
             sticky="w"
         )
 
-        # Etiquetas de los tres campos.
-        for columna, texto in [
-            (0, "Año"),
-            (2, "Mes"),
-            (4, "Día")
-        ]:
+        # ------------------------------------------------------------
+        # LONGITUD TOTAL DEL MURO
+        # ------------------------------------------------------------
 
-            ctk.CTkLabel(
-                self.fecha_frame,
-                text=texto,
-                font=("Arial", 11),
-                text_color="#647386"
-            ).grid(
-                row=0,
-                column=columna
-            )
-
-        # Campo del año: máximo cuatro números.
-        self.fecha_anio_entry = ctk.CTkEntry(
-            self.fecha_frame,
-            width=85,
-            height=35,
-            validate="key",
-            validatecommand=(
-                self.register(self.validar_anio),
-                "%P"
-            )
-        )
-
-        self.fecha_anio_entry.grid(
+        ctk.CTkLabel(
+            self.geometry_frame,
+            text="Longitud total del muro (m):",
+            font=("Arial", 12, "bold"),
+            text_color="#192B40"
+        ).grid(
             row=1,
             column=0,
-            padx=(0, 5)
+            padx=12,
+            pady=8,
+            sticky="w"
         )
 
-        # Primer guion.
-        ctk.CTkLabel(
-            self.fecha_frame,
-            text="-",
-            font=("Arial", 16, "bold")
-        ).grid(
+        self.longitud_muro_entry = ctk.CTkEntry(
+            self.geometry_frame,
+            height=34,
+            width=140,
+            placeholder_text="Ej. 12.60"
+        )
+
+        self.longitud_muro_entry.grid(
             row=1,
             column=1,
-            padx=5
+            padx=10,
+            pady=8,
+            sticky="ew"
         )
 
-        # Campo del mes: máximo dos números.
-        self.fecha_mes_entry = ctk.CTkEntry(
-            self.fecha_frame,
-            width=55,
-            height=35,
-            validate="key",
-            validatecommand=(
-                self.register(self.validar_dos_digitos),
-                "%P"
-            )
-        )
+        # ------------------------------------------------------------
+        # LONGITUD DEL PANEL
+        # ------------------------------------------------------------
 
-        self.fecha_mes_entry.grid(
-            row=1,
-            column=2,
-            padx=5
-        )
-
-        # Segundo guion.
         ctk.CTkLabel(
-            self.fecha_frame,
-            text="-",
-            font=("Arial", 16, "bold")
+            self.geometry_frame,
+            text="Longitud de cada panel (m):",
+            font=("Arial", 12, "bold"),
+            text_color="#192B40"
         ).grid(
             row=1,
-            column=3,
-            padx=5
+            column=2,
+            padx=12,
+            pady=8,
+            sticky="w"
         )
 
-        # Campo del día: máximo dos números.
-        self.fecha_dia_entry = ctk.CTkEntry(
-            self.fecha_frame,
-            width=55,
-            height=35,
-            validate="key",
-            validatecommand=(
-                self.register(self.validar_dos_digitos),
-                "%P"
-            )
+        self.longitud_panel_entry = ctk.CTkEntry(
+            self.geometry_frame,
+            height=34,
+            width=140,
+            placeholder_text="Ej. 1.25"
         )
 
-        self.fecha_dia_entry.grid(
+        self.longitud_panel_entry.grid(
             row=1,
-            column=4,
-            padx=(5, 0)
+            column=3,
+            padx=10,
+            pady=8,
+            sticky="ew"
         )
 
+        # ------------------------------------------------------------
+        # ALTURA INICIAL
+        # ------------------------------------------------------------
+
+        ctk.CTkLabel(
+            self.geometry_frame,
+            text="Altura inicial (m):",
+            font=("Arial", 12, "bold"),
+            text_color="#192B40"
+        ).grid(
+            row=2,
+            column=0,
+            padx=12,
+            pady=8,
+            sticky="w"
+        )
+
+        self.altura_inicial_entry = ctk.CTkEntry(
+            self.geometry_frame,
+            height=34,
+            placeholder_text="Ej. 1.25"
+        )
+
+        self.altura_inicial_entry.grid(
+            row=2,
+            column=1,
+            padx=10,
+            pady=8,
+            sticky="ew"
+        )
+
+        # ------------------------------------------------------------
+        # ALTURA FINAL
+        # ------------------------------------------------------------
+
+        ctk.CTkLabel(
+            self.geometry_frame,
+            text="Altura final (m):",
+            font=("Arial", 12, "bold"),
+            text_color="#192B40"
+        ).grid(
+            row=2,
+            column=2,
+            padx=12,
+            pady=8,
+            sticky="w"
+        )
+
+        self.altura_final_entry = ctk.CTkEntry(
+            self.geometry_frame,
+            height=34,
+            placeholder_text="Ej. 1.35"
+        )
+
+        self.altura_final_entry.grid(
+            row=2,
+            column=3,
+            padx=10,
+            pady=8,
+            sticky="ew"
+        )
+
+        # ------------------------------------------------------------
+        # PASO DE ALTURA
+        # ------------------------------------------------------------
+
+        ctk.CTkLabel(
+            self.geometry_frame,
+            text="Paso de altura (m):",
+            font=("Arial", 12, "bold"),
+            text_color="#192B40"
+        ).grid(
+            row=3,
+            column=0,
+            padx=12,
+            pady=8,
+            sticky="w"
+        )
+
+        self.paso_altura_entry = ctk.CTkEntry(
+            self.geometry_frame,
+            height=34
+        )
+
+        self.paso_altura_entry.grid(
+            row=3,
+            column=1,
+            padx=10,
+            pady=8,
+            sticky="ew"
+        )
+
+        self.paso_altura_entry.insert(0, "0.05")
+
+        # ------------------------------------------------------------
+        # MODO DE PROGRESION
+        # ------------------------------------------------------------
+
+        ctk.CTkLabel(
+            self.geometry_frame,
+            text="Modo de progresión:",
+            font=("Arial", 12, "bold"),
+            text_color="#192B40"
+        ).grid(
+            row=3,
+            column=2,
+            padx=12,
+            pady=8,
+            sticky="w"
+        )
+
+        self.modo_altura_segmented = ctk.CTkSegmentedButton(
+            self.geometry_frame,
+            values=["Estricto", "Flexible"],
+            selected_color="#192B40",
+            selected_hover_color="#263E59"
+        )
+
+        self.modo_altura_segmented.grid(
+            row=3,
+            column=3,
+            padx=10,
+            pady=8,
+            sticky="ew"
+        )
+
+        self.modo_altura_segmented.set("Estricto")
+
+        # Texto explicativo.
+        self.geometry_description = ctk.CTkLabel(
+            self.geometry_frame,
+            text=(
+                "Estricto: salto máximo de un paso. "
+                "Flexible: salto máximo de dos pasos."
+            ),
+            font=("Arial", 11),
+            text_color="#647386"
+        )
+
+        self.geometry_description.grid(
+            row=4,
+            column=0,
+            columnspan=4,
+            padx=12,
+            pady=(5, 12),
+            sticky="w"
+        )
+        # ------------------------------------------------------------
+        # RESUMEN DE PANELES NECESARIOS
+        # ------------------------------------------------------------
+
+        self.paneles_necesarios_label = ctk.CTkLabel(
+        self.geometry_frame,
+        text="Paneles necesarios: pendiente de cálculo",
+        font=("Arial", 13, "bold"),
+        text_color="#192B40"
+        )
+ 
+        self.paneles_necesarios_label.grid(
+        row=5,
+        column=0,
+        columnspan=4,
+        padx=12,
+        pady=(5, 14),
+        sticky="w"
+        )
         # ------------------------------------------------------------
         # BOTÓN PARA CONFIRMAR EL REGISTRO
         # ------------------------------------------------------------
@@ -487,7 +715,7 @@ class PanelMSEApp(ctk.CTk):
         )
 
         self.project_button.grid(
-            row=4,
+            row=5,
             column=0,
             padx=20,
             pady=(12, 18),
@@ -508,7 +736,7 @@ class PanelMSEApp(ctk.CTk):
         )
 
         self.project_status_label.grid(
-            row=4,
+            row=5,
             column=1,
             padx=20,
             pady=(12, 18),
@@ -795,6 +1023,11 @@ class PanelMSEApp(ctk.CTk):
 
         self.tab_sobrantes = self.results_tabs.add("Paneles sobrantes")
 
+        # Nueva pestaña para el diagnóstico del inventario.
+        self.tab_diagnostico = self.results_tabs.add(
+        "Diagnóstico del inventario"
+        )
+
 
         # ============================================================
         # CREAR LAS TABLAS
@@ -832,6 +1065,37 @@ class PanelMSEApp(ctk.CTk):
         ("familia", "Familia", 130)
     ]
 )
+        # ============================================================
+        # BLOQUE: DIAGNÓSTICO DEL INVENTARIO
+        # ============================================================
+
+        self.diagnostico_resumen_label = ctk.CTkLabel(
+        self.tab_diagnostico,
+        text="El diagnóstico aparecerá después de calcular.",
+        font=("Arial", 12, "bold"),
+        text_color="#192B40",
+        justify="left",
+        anchor="w",
+        wraplength=850
+        )
+
+        self.diagnostico_resumen_label.pack(
+        fill="x",
+        padx=10,
+        pady=(10, 5)
+        ) 
+
+        # Tabla que muestra los candidatos y los motivos de rechazo.
+        self.tabla_diagnostico = self._crear_tabla(
+        self.tab_diagnostico,
+    [
+        ("orden", "Orden", 65),
+        ("id_posicion", "Posición", 85),
+        ("cantidad_candidatos", "Candidatos", 90),
+        ("paneles_candidatos", "Paneles compatibles", 190),
+        ("motivos_rechazo", "Motivos de rechazo", 390)
+    ]
+        )
         # ============================================================
         # BLOQUE: BOTONES DE EXPORTACIÓN
         # Permite exportar los resultados en CSV o PDF.
@@ -950,7 +1214,7 @@ class PanelMSEApp(ctk.CTk):
             # Aplicar el icono a la ventana.
             self.iconbitmap(str(ruta_icono))
 
-        except Exception as error:
+        except OSError as error:
 
             print(
                 f"No se pudo aplicar el icono: {error}"
@@ -998,7 +1262,310 @@ class PanelMSEApp(ctk.CTk):
                 for caracter in nuevo_valor
             )
         )
+    # ============================================================
+    # ABRIR EL CALENDARIO
+    # ============================================================
 
+    def abrir_calendario(self):
+
+        # Evitar abrir varias ventanas de calendario.
+        if (
+            self.calendario_ventana is not None
+            and self.calendario_ventana.winfo_exists()
+        ):
+            self.calendario_ventana.lift()
+            return
+
+        # Utilizar la fecha seleccionada o la fecha actual.
+        fecha_base = self.fecha_seleccionada or date.today()
+
+        self.calendario_anio = fecha_base.year
+        self.calendario_mes = fecha_base.month
+
+        # Crear la ventana del calendario.
+        self.calendario_ventana = ctk.CTkToplevel(self)
+
+        self.calendario_ventana.title("Seleccionar fecha")
+        self.calendario_ventana.geometry("340x390")
+        self.calendario_ventana.resizable(False, False)
+        self.calendario_ventana.transient(self)
+
+        self.calendario_ventana.protocol(
+            "WM_DELETE_WINDOW",
+            self.cerrar_calendario
+        )
+
+        # Contenedor principal.
+        contenedor = ctk.CTkFrame(
+            self.calendario_ventana,
+            fg_color="transparent"
+        )
+
+        contenedor.pack(
+            fill="both",
+            expand=True,
+            padx=15,
+            pady=15
+        )
+
+        # --------------------------------------------------------
+        # ENCABEZADO Y NAVEGACIÓN ENTRE MESES
+        # --------------------------------------------------------
+
+        navegacion = ctk.CTkFrame(
+            contenedor,
+            fg_color="transparent"
+        )
+
+        navegacion.pack(fill="x", pady=(0, 15))
+
+        navegacion.grid_columnconfigure(1, weight=1)
+
+        self.calendario_anterior_button = ctk.CTkButton(
+            navegacion,
+            text="<",
+            width=40,
+            command=lambda: self.cambiar_mes_calendario(-1)
+        )
+
+        self.calendario_anterior_button.grid(
+            row=0,
+            column=0,
+            padx=5
+        )
+
+        self.calendario_titulo = ctk.CTkLabel(
+            navegacion,
+            text="",
+            font=("Arial", 17, "bold"),
+            text_color="#192B40"
+        )
+
+        self.calendario_titulo.grid(
+            row=0,
+            column=1
+        )
+
+        self.calendario_siguiente_button = ctk.CTkButton(
+            navegacion,
+            text=">",
+            width=40,
+            command=lambda: self.cambiar_mes_calendario(1)
+        )
+
+        self.calendario_siguiente_button.grid(
+            row=0,
+            column=2,
+            padx=5
+        )
+
+        # --------------------------------------------------------
+        # ENCABEZADOS DE LOS DÍAS DE LA SEMANA
+        # --------------------------------------------------------
+
+        encabezados = ctk.CTkFrame(
+            contenedor,
+            fg_color="transparent"
+        )
+
+        encabezados.pack(fill="x")
+
+        dias_semana = [
+            "Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"
+        ]
+
+        for columna, nombre in enumerate(dias_semana):
+
+            encabezados.grid_columnconfigure(
+                columna,
+                weight=1
+            )
+
+            ctk.CTkLabel(
+                encabezados,
+                text=nombre,
+                font=("Arial", 12, "bold"),
+                text_color="#647386"
+            ).grid(
+                row=0,
+                column=columna,
+                padx=2,
+                pady=5
+            )
+
+        # --------------------------------------------------------
+        # CONTENEDOR DE LOS DÍAS DEL MES
+        # --------------------------------------------------------
+
+        self.calendario_dias_frame = ctk.CTkFrame(
+            contenedor,
+            fg_color="transparent"
+        )
+
+        self.calendario_dias_frame.pack(
+            fill="both",
+            expand=True
+        )
+
+        for columna in range(7):
+
+            self.calendario_dias_frame.grid_columnconfigure(
+                columna,
+                weight=1
+            )
+
+        # Mostrar el mes correspondiente.
+        self.actualizar_calendario()
+
+        # Mantener el calendario delante de la ventana principal.
+        self.calendario_ventana.grab_set()
+
+
+    # ============================================================
+    # ACTUALIZAR LOS DÍAS DEL CALENDARIO
+    # ============================================================
+
+    def actualizar_calendario(self):
+
+        nombres_meses = [
+            "Enero", "Febrero", "Marzo", "Abril",
+            "Mayo", "Junio", "Julio", "Agosto",
+            "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ]
+
+        # Actualizar el título del calendario.
+        self.calendario_titulo.configure(
+            text=(
+                f"{nombres_meses[self.calendario_mes - 1]} "
+                f"{self.calendario_anio}"
+            )
+        )
+
+        # Eliminar los días del mes anterior.
+        for elemento in self.calendario_dias_frame.winfo_children():
+            elemento.destroy()
+
+        # Obtener las semanas del mes.
+        semanas = calendar.monthcalendar(
+            self.calendario_anio,
+            self.calendario_mes
+        )
+
+        # Crear un botón para cada día.
+        for fila, semana in enumerate(semanas):
+
+            for columna, dia in enumerate(semana):
+
+                if dia == 0:
+                    continue
+
+                color_fondo = "#FFFFFF"
+                color_texto = "#192B40"
+
+                # Resaltar la fecha que ya está seleccionada.
+                if (
+                    self.fecha_seleccionada is not None
+                    and self.fecha_seleccionada.year == self.calendario_anio
+                    and self.fecha_seleccionada.month == self.calendario_mes
+                    and self.fecha_seleccionada.day == dia
+                ):
+
+                    color_fondo = "#2D6A8A"
+                    color_texto = "#FFFFFF"
+
+                boton_dia = ctk.CTkButton(
+                    self.calendario_dias_frame,
+                    text=str(dia),
+                    width=35,
+                    height=34,
+                    fg_color=color_fondo,
+                    hover_color="#DCE5EF",
+                    text_color=color_texto,
+                    font=("Arial", 12),
+                    command=lambda numero=dia: self.seleccionar_fecha(numero)
+                )
+
+                boton_dia.grid(
+                    row=fila,
+                    column=columna,
+                    padx=2,
+                    pady=3,
+                    sticky="nsew"
+                )
+
+
+    # ============================================================
+    # CAMBIAR DE MES
+    # ============================================================
+
+    def cambiar_mes_calendario(self, desplazamiento):
+
+        nuevo_mes = self.calendario_mes + desplazamiento
+        nuevo_anio = self.calendario_anio
+
+        if nuevo_mes < 1:
+
+            nuevo_mes = 12
+            nuevo_anio -= 1
+
+        elif nuevo_mes > 12:
+
+            nuevo_mes = 1
+            nuevo_anio += 1
+
+        # Evitar años fuera del rango admitido por datetime.
+        if nuevo_anio < 1 or nuevo_anio > 9999:
+            return
+
+        self.calendario_mes = nuevo_mes
+        self.calendario_anio = nuevo_anio
+
+        self.actualizar_calendario()
+
+
+    # ============================================================
+    # GUARDAR LA FECHA SELECCIONADA
+    # ============================================================
+
+    def seleccionar_fecha(self, dia):
+
+        self.fecha_seleccionada = date(
+            self.calendario_anio,
+            self.calendario_mes,
+            dia
+        )
+
+        # Mostrar la fecha en el campo de la interfaz.
+        self.fecha_entry.configure(state="normal")
+
+        self.fecha_entry.delete(0, "end")
+
+        self.fecha_entry.insert(
+            0,
+            self.fecha_seleccionada.strftime("%d/%m/%Y")
+        )
+
+        self.fecha_entry.configure(state="disabled")
+
+        # Cerrar el calendario después de seleccionar.
+        self.cerrar_calendario()
+
+
+    # ============================================================
+    # CERRAR EL CALENDARIO
+    # ============================================================
+
+    def cerrar_calendario(self):
+
+        if self.calendario_ventana is not None:
+
+            ventana = self.calendario_ventana
+
+            self.calendario_ventana = None
+
+            ventana.grab_release()
+
+            ventana.destroy()
 # ============================================================
 # BLOQUE: SELECCIONAR EL ARCHIVO DE PANELES
 # Abre el explorador y guarda la ruta del CSV seleccionado.
@@ -1009,91 +1576,211 @@ class PanelMSEApp(ctk.CTk):
     # Valida y guarda la identificación del proyecto.
     # ============================================================
 
+
+    # ============================================================
+    # REGISTRAR PROYECTO Y VALIDAR GEOMETRIA
+    # ============================================================
+
     def registrar_proyecto(self):
 
         # --------------------------------------------------------
-        # 1. Obtener los datos escritos por el usuario.
+        # 1. OBTENER DATOS GENERALES
         # --------------------------------------------------------
 
         responsable = self.responsable_entry.get().strip()
         nombre_proyecto = self.nombre_proyecto_entry.get().strip()
+        fecha = self.fecha_seleccionada
 
-        anio = self.fecha_anio_entry.get()
-        mes = self.fecha_mes_entry.get()
-        dia = self.fecha_dia_entry.get()
+        # Obtener las medidas introducidas.
+        longitud_muro_texto = self.longitud_muro_entry.get().strip()
+        longitud_panel_texto = self.longitud_panel_entry.get().strip()
+        altura_inicial_texto = self.altura_inicial_entry.get().strip()
+        altura_final_texto = self.altura_final_entry.get().strip()
+        paso_altura_texto = self.paso_altura_entry.get().strip()
+
+        modo = self.modo_altura_segmented.get()
 
         # --------------------------------------------------------
-        # 2. Comprobar que ningún campo esté vacío.
+        # 2. COMPROBAR CAMPOS VACIOS
         # --------------------------------------------------------
 
-        if not responsable or not nombre_proyecto or not anio or not mes or not dia:
+        if (
+            not responsable
+            or not nombre_proyecto
+            or fecha is None
+            or not longitud_muro_texto
+            or not longitud_panel_texto
+            or not altura_inicial_texto
+            or not altura_final_texto
+            or not paso_altura_texto
+        ):
 
             messagebox.showwarning(
                 "Datos incompletos",
-                "Debes completar todos los campos del proyecto.",
+                "Debes completar todos los datos del proyecto "
+                "y las dimensiones del muro, y seleccionar una fecha.",
                 parent=self
             )
             return
 
         # --------------------------------------------------------
-        # 3. Validar que el año tenga cuatro números.
+        # 3. CONVERTIR Y VALIDAR LAS MEDIDAS
         # --------------------------------------------------------
 
-        if len(anio) != 4:
+        def leer_medida_positiva(texto, nombre):
 
-            messagebox.showwarning(
-                "Año incorrecto",
-                "El año debe contener exactamente cuatro números.",
-                parent=self
-            )
-            return
+            try:
+                valor = Decimal(
+                    texto.replace(",", ".")
+                )
 
-        # --------------------------------------------------------
-        # 4. Construir y validar la fecha completa.
-        # --------------------------------------------------------
+            except InvalidOperation:
 
-        fecha_texto = f"{anio}-{mes.zfill(2)}-{dia.zfill(2)}"
+                raise ValueError(
+                    f"La {nombre} debe ser un número válido."
+                )
+
+            if not valor.is_finite() or valor <= 0:
+
+                raise ValueError(
+                    f"La {nombre} debe ser mayor que cero."
+                )
+
+            return valor
 
         try:
 
-            fecha_validada = datetime.strptime(
-                fecha_texto,
-                "%Y-%m-%d"
+            longitud_muro = leer_medida_positiva(
+                longitud_muro_texto,
+                "longitud del muro"
             )
 
-        except ValueError:
+            longitud_panel = leer_medida_positiva(
+                longitud_panel_texto,
+                "longitud del panel"
+            )
+
+            altura_inicial = leer_medida_positiva(
+                altura_inicial_texto,
+                "altura inicial"
+            )
+
+            altura_final = leer_medida_positiva(
+                altura_final_texto,
+                "altura final"
+            )
+
+            paso_altura = leer_medida_positiva(
+                paso_altura_texto,
+                "paso de altura"
+            )
+
+        except ValueError as error:
 
             messagebox.showwarning(
-                "Fecha incorrecta",
-                "La fecha introducida no existe.\n\n"
-                "Comprueba el año, el mes y el día.",
+                "Medida incorrecta",
+                str(error),
                 parent=self
             )
             return
 
         # --------------------------------------------------------
-        # 5. Guardar la información del proyecto.
+        # 4. VALIDAR RELACION ENTRE LONGITUDES
+        # --------------------------------------------------------
+
+        if longitud_panel >= longitud_muro:
+
+            messagebox.showwarning(
+                "Longitud incorrecta",
+                "La longitud de cada panel debe ser menor "
+                "que la longitud total del muro.",
+                parent=self
+            )
+            return
+
+        # --------------------------------------------------------
+        # 5. VALIDAR EL MODO DE PROGRESION
+        # --------------------------------------------------------
+
+        if modo not in ("Estricto", "Flexible"):
+
+            messagebox.showwarning(
+                "Modo incorrecto",
+                "Selecciona el modo estricto o flexible.",
+                parent=self
+            )
+            return
+
+        # --------------------------------------------------------
+        # 6. GUARDAR INFORMACION GENERAL
         # --------------------------------------------------------
 
         self.datos_proyecto = {
             "responsable": responsable,
             "nombre_proyecto": nombre_proyecto,
-            "fecha": fecha_validada.strftime("%Y-%m-%d")
+            "fecha": fecha.strftime("%Y-%m-%d")
         }
 
         # --------------------------------------------------------
-        # 6. Bloquear los campos para evitar cambios accidentales.
+        # 7. GUARDAR GEOMETRIA Y CONFIGURACION
+        # --------------------------------------------------------
+
+        self.datos_geometria = {
+            "longitud_muro_m": str(longitud_muro),
+            "longitud_panel_m": str(longitud_panel),
+            "altura_inicial_m": str(altura_inicial),
+            "altura_final_m": str(altura_final),
+            "paso_altura_m": str(paso_altura),
+            "modo_flexible": modo == "Flexible"
+        }
+        # --------------------------------------------------------
+        # CALCULAR CANTIDAD DE PANELES NECESARIOS
+        # --------------------------------------------------------
+
+        distribucion = calcular_distribucion_longitud(
+        longitud_muro,
+        longitud_panel
+        )
+ 
+        cantidad_necesaria = (
+        distribucion["cantidad_paneles_necesarios"]
+        )
+
+        longitud_cubierta = (
+        distribucion["longitud_cubierta_m"]
+        )
+
+        espacio_sobrante = (
+        distribucion["espacio_sobrante_m"]
+        )
+
+        # Mostrar los resultados en la interfaz.
+        self.paneles_necesarios_label.configure(
+        text=(
+        f"Paneles necesarios: {cantidad_necesaria}    |    "
+        f"Longitud cubierta: {longitud_cubierta} m    |    "
+        f"Espacio sobrante: {espacio_sobrante} m"
+        ),
+        text_color="#16845B"
+        )
+        # --------------------------------------------------------
+        # 8. BLOQUEAR LOS CAMPOS DEL PROYECTO
         # --------------------------------------------------------
 
         self.responsable_entry.configure(state="disabled")
         self.nombre_proyecto_entry.configure(state="disabled")
+        self.fecha_calendario_button.configure(state="disabled")
 
-        self.fecha_anio_entry.configure(state="disabled")
-        self.fecha_mes_entry.configure(state="disabled")
-        self.fecha_dia_entry.configure(state="disabled")
+        self.longitud_muro_entry.configure(state="disabled")
+        self.longitud_panel_entry.configure(state="disabled")
+        self.altura_inicial_entry.configure(state="disabled")
+        self.altura_final_entry.configure(state="disabled")
+        self.paso_altura_entry.configure(state="disabled")
+
+        self.modo_altura_segmented.configure(state="disabled")
 
         # --------------------------------------------------------
-        # 7. Habilitar la selección de archivos CSV.
+        # 9. HABILITAR SELECCION DE ARCHIVOS
         # --------------------------------------------------------
 
         self.paneles_button.configure(state="normal")
@@ -1105,7 +1792,7 @@ class PanelMSEApp(ctk.CTk):
         )
 
         # --------------------------------------------------------
-        # 8. Actualizar los mensajes de la interfaz.
+        # 10. ACTUALIZAR ESTADO
         # --------------------------------------------------------
 
         self.project_status_label.configure(
@@ -1117,11 +1804,17 @@ class PanelMSEApp(ctk.CTk):
 
         messagebox.showinfo(
             "Registro completado",
-            "La información del proyecto se registró correctamente.\n\n"
+            "Los datos del proyecto y las dimensiones del muro "
+            "se registraron correctamente.\n\n"
             "Ya puedes seleccionar los archivos CSV.",
             parent=self
         )
 
+
+
+    # ============================================================
+    # HABILITAR EDICION DEL PROYECTO
+    # ============================================================
 
     def habilitar_edicion_proyecto(self):
 
@@ -1135,30 +1828,46 @@ class PanelMSEApp(ctk.CTk):
         if not confirmar:
             return
 
-        # Eliminar los resultados anteriores.
+        # Eliminar resultados anteriores.
         self.resultados_actuales = None
+
+        self.datos_proyecto = None
+        self.datos_geometria = None
 
         self.actualizar_vista_resultados()
 
-        # Permitir modificar los campos.
+        # --------------------------------------------------------
+        # HABILITAR DATOS GENERALES
+        # --------------------------------------------------------
+
         self.responsable_entry.configure(state="normal")
-
         self.nombre_proyecto_entry.configure(state="normal")
+        self.fecha_calendario_button.configure(state="normal")
 
-        self.fecha_anio_entry.configure(state="normal")
+        # --------------------------------------------------------
+        # HABILITAR DIMENSIONES DEL MURO
+        # --------------------------------------------------------
 
-        self.fecha_mes_entry.configure(state="normal")
+        self.longitud_muro_entry.configure(state="normal")
+        self.longitud_panel_entry.configure(state="normal")
+        self.altura_inicial_entry.configure(state="normal")
+        self.altura_final_entry.configure(state="normal")
+        self.paso_altura_entry.configure(state="normal")
 
-        self.fecha_dia_entry.configure(state="normal")
+        self.modo_altura_segmented.configure(state="normal")
 
-        # Deshabilitar la selección mientras se modifica el registro.
+        # --------------------------------------------------------
+        # DESHABILITAR ARCHIVOS HASTA CONFIRMAR
+        # --------------------------------------------------------
+
         self.paneles_button.configure(state="disabled")
-
         self.posiciones_button.configure(state="disabled")
-
         self.calculate_button.configure(state="disabled")
 
-        # Restaurar el botón de confirmación.
+        # --------------------------------------------------------
+        # RESTAURAR BOTON DE CONFIRMACION
+        # --------------------------------------------------------
+
         self.project_button.configure(
             text="Confirmar datos del proyecto",
             command=self.registrar_proyecto
@@ -1172,6 +1881,7 @@ class PanelMSEApp(ctk.CTk):
         self.status_label.configure(
             text="Estado: Esperando confirmación del registro."
         )
+
     def seleccionar_paneles(self):
 
         ruta = filedialog.askopenfilename(
@@ -1404,10 +2114,19 @@ class PanelMSEApp(ctk.CTk):
 
         try:
 
-            respuesta = procesar_archivos(
-                self.ruta_paneles,
-                self.ruta_posiciones
-            )
+         respuesta = procesar_archivos_con_geometria(
+         self.ruta_paneles,
+         self.ruta_posiciones,
+
+         self.datos_geometria["longitud_muro_m"],
+         self.datos_geometria["longitud_panel_m"],
+
+         self.datos_geometria["altura_inicial_m"],
+         self.datos_geometria["altura_final_m"],
+
+         self.datos_geometria["paso_altura_m"],
+         self.datos_geometria["modo_flexible"]
+        )
 
         except Exception as error:  # noqa: BLE001
 
@@ -1494,7 +2213,8 @@ class PanelMSEApp(ctk.CTk):
         tablas = [
             self.tabla_asignaciones,
             self.tabla_pendientes,
-            self.tabla_sobrantes
+            self.tabla_sobrantes,
+            self.tabla_diagnostico
         ]
 
         for tabla in tablas:
@@ -1529,7 +2249,10 @@ class PanelMSEApp(ctk.CTk):
             )
             self.export_button.configure(state="disabled")
             self.pdf_button.configure(state="disabled")
-            return
+            self.diagnostico_resumen_label.configure(
+            text="El diagnóstico aparecerá después de calcular."
+            )
+            return 
         # Habilitar la exportación porque existen resultados.
         self.export_button.configure(state="normal")
         self.pdf_button.configure(state="normal")
@@ -1590,6 +2313,144 @@ class PanelMSEApp(ctk.CTk):
                     panel.familia
                 )
             )
+
+        # --------------------------------------------------------
+        # 6. LLENAR EL DIAGNÓSTICO DEL INVENTARIO
+        # --------------------------------------------------------
+
+        diagnostico = resultados.get(
+            "diagnostico_asignacion", {}
+        )
+
+        candidatos = diagnostico.get(
+            "candidatos_por_posicion", []
+        )
+
+        rechazos = diagnostico.get(
+            "rechazos_por_posicion", []
+        )
+
+        # Relacionar los motivos de rechazo con cada posición.
+        rechazos_por_orden = {
+            registro["orden"]: registro.get("motivos", {})
+            for registro in rechazos
+        }
+
+        nombres_motivos = {
+            "no_disponible": "No disponibles",
+            "familia_incompatible": "Familia incompatible",
+            "fuera_intervalo_altura": "Fuera del intervalo",
+            "no_cumple_paso_altura": "No cumple el paso",
+            "no_cumple_altura_inicial": "No cumple altura inicial"
+        }
+
+        for candidato in candidatos:
+
+            orden = candidato["orden"]
+
+            ids_candidatos = candidato.get(
+                "ids_paneles_candidatos", []
+            )
+
+            motivos = rechazos_por_orden.get(
+                orden, {}
+            )
+
+            # Construir el texto de motivos de rechazo.
+            detalles_rechazo = []
+
+            for clave, nombre in nombres_motivos.items():
+
+                ids_rechazados = motivos.get(clave, [])
+
+                if ids_rechazados:
+
+                    detalles_rechazo.append(
+                        f"{nombre}: {', '.join(ids_rechazados)}"
+                    )
+
+            texto_candidatos = (
+                ", ".join(ids_candidatos)
+                if ids_candidatos
+                else "Ninguno"
+            )
+
+            texto_rechazos = (
+                " | ".join(detalles_rechazo)
+                if detalles_rechazo
+                else "Sin rechazos"
+            )
+
+            self.tabla_diagnostico.insert(
+                "",
+                "end",
+                values=(
+                    orden,
+                    candidato["id_posicion"],
+                    candidato["cantidad_candidatos"],
+                    texto_candidatos,
+                    texto_rechazos
+                )
+            )
+
+        # --------------------------------------------------------
+        # RESUMEN DEL INVENTARIO
+        # --------------------------------------------------------
+
+        total_inventario = diagnostico.get(
+            "total_paneles_inventario", 0
+        )
+
+        total_disponibles = diagnostico.get(
+            "total_paneles_disponibles", 0
+        )
+
+        total_candidatos = diagnostico.get(
+            "total_paneles_candidatos", 0
+        )
+
+        total_asignados = diagnostico.get(
+            "total_paneles_asignados", 0
+        )
+
+        total_sin_compatibilidad = diagnostico.get(
+            "total_paneles_disponibles_sin_candidato",
+            0
+        )
+
+        total_no_disponibles = len(
+            diagnostico.get("paneles_no_disponibles", [])
+        )
+
+        direccion = diagnostico.get(
+            "direccion_muro", "No disponible"
+        )
+
+        modo = diagnostico.get(
+            "modo_altura", "No disponible"
+        )
+
+        paso = diagnostico.get(
+            "paso_altura_mm", 0
+        )
+
+        salto = diagnostico.get(
+            "salto_maximo_mm", 0
+        )
+
+        self.diagnostico_resumen_label.configure(
+            text=(
+                f"Inventario: {total_inventario} | "
+                f"Disponibles: {total_disponibles} | "
+                f"Candidatos: {total_candidatos} | "
+                f"Asignados: {total_asignados}\n"
+                f"Disponibles sin compatibilidad: "
+                f"{total_sin_compatibilidad} | "
+                f"No disponibles: {total_no_disponibles}\n"
+                f"Perfil: {direccion} | Modo: {modo} | "
+                f"Paso: {paso} mm | Salto máximo: {salto} mm"
+            )
+        )
 
         # --------------------------------------------------------
         # 6. ACTUALIZAR EL RESUMEN GENERAL
@@ -1705,6 +2566,8 @@ class PanelMSEApp(ctk.CTk):
         for posicion in resultados["posiciones_pendientes"]:
 
             filas_pendientes.append({
+                
+                "orden": posicion.orden,
 
                 "id_posicion": posicion.id_posicion,
 
@@ -1739,10 +2602,180 @@ class PanelMSEApp(ctk.CTk):
             })
 
         # --------------------------------------------------------
+        # 5.1 ORGANIZAR POSICIONES GEOMETRICAS
+        # --------------------------------------------------------
+
+        geometria = resultados["geometria_muro"]
+
+        comparacion = resultados["comparacion_geometrica"]
+
+        coincidencias_por_orden = {
+            registro["orden"]: registro
+            for registro in comparacion["posiciones_coincidentes"]
+        }
+
+        filas_geometricas = []
+
+        for posicion_geo in geometria["posiciones_geometricas"]:
+
+            coincidencia = coincidencias_por_orden.get(
+                posicion_geo["orden"], {}
+            )
+
+            filas_geometricas.append({
+                "orden": posicion_geo["orden"],
+                "id_posicion_geometrica":
+                    posicion_geo["id_posicion_geometrica"],
+                "progresiva_inicio_m":
+                    posicion_geo["progresiva_inicio_m"],
+                "progresiva_fin_m":
+                    posicion_geo["progresiva_fin_m"],
+                "id_posicion_csv":
+                    coincidencia.get("id_posicion_csv", ""),
+                "ubicacion":
+                    coincidencia.get("ubicacion", "")
+            })
+
+        # --------------------------------------------------------
+        # 5.2 ORGANIZAR DIAGNOSTICO DEL INVENTARIO
+        # --------------------------------------------------------
+
+        diagnostico = resultados["diagnostico_asignacion"]
+
+        candidatos = diagnostico["candidatos_por_posicion"]
+
+        rechazos = diagnostico["rechazos_por_posicion"]
+
+        rechazos_por_orden = {
+            registro["orden"]: registro.get("motivos", {})
+            for registro in rechazos
+        }
+
+        filas_diagnostico = []
+
+        for candidato in candidatos:
+
+            orden = candidato["orden"]
+
+            motivos = rechazos_por_orden.get(orden, {})
+
+            filas_diagnostico.append({
+                "orden": orden,
+                "id_posicion": candidato["id_posicion"],
+                "cantidad_candidatos":
+                    candidato["cantidad_candidatos"],
+                "paneles_candidatos": ", ".join(
+                    candidato["ids_paneles_candidatos"]
+                ),
+                "no_disponibles": ", ".join(
+                    motivos.get("no_disponible", [])
+                ),
+                "familia_incompatible": ", ".join(
+                    motivos.get("familia_incompatible", [])
+                ),
+                "fuera_intervalo_altura": ", ".join(
+                    motivos.get("fuera_intervalo_altura", [])
+                ),
+                "no_cumple_paso_altura": ", ".join(
+                    motivos.get("no_cumple_paso_altura", [])
+                ),
+                "no_cumple_altura_inicial": ", ".join(
+                    motivos.get("no_cumple_altura_inicial", [])
+                )
+            })
+
+        # --------------------------------------------------------
+        # 5.3 ORGANIZAR PANELES DISPONIBLES SIN COMPATIBILIDAD
+        # --------------------------------------------------------
+
+        filas_sin_compatibilidad = []
+
+        for panel in diagnostico[
+            "paneles_disponibles_sin_candidato"
+        ]:
+
+            filas_sin_compatibilidad.append({
+                "id_panel": panel.id_panel,
+                "altura_mm": panel.altura_mm,
+                "familia": panel.familia,
+                "motivo": (
+                    "No cumple las condiciones de ninguna posición."
+                )
+            })
+
+        # --------------------------------------------------------
         # 6. Preparar el resumen general.
         # --------------------------------------------------------
 
+        # --------------------------------------------------------
+        # 6. PREPARAR EL RESUMEN GENERAL
+        # --------------------------------------------------------
+
+        geometria_configurada = self.datos_geometria
+
         filas_resumen = [{
+
+            "longitud_muro_m": geometria_configurada[
+                "longitud_muro_m"
+            ],
+
+            "longitud_panel_m": geometria_configurada[
+                "longitud_panel_m"
+            ],
+
+            "cantidad_paneles_necesarios": (
+                resultados["cantidad_paneles_necesarios"]
+            ),
+
+            "longitud_cubierta_m": (
+                resultados["longitud_cubierta_m"]
+            ),
+
+            "espacio_sobrante_m": (
+                resultados["espacio_sobrante_m"]
+            ),
+
+            "altura_inicial_m": geometria_configurada[
+                "altura_inicial_m"
+            ],
+
+            "altura_final_m": geometria_configurada[
+                "altura_final_m"
+            ],
+
+            "paso_altura_m": geometria_configurada[
+                "paso_altura_m"
+            ],
+
+            "modo_altura": resultados["modo_altura"],
+
+            "direccion_muro": resultados["direccion_muro"],
+
+            "alcanza_altura_final": (
+                resultados["alcanza_altura_final"]
+            ),
+
+            "total_paneles_inventario": (
+                diagnostico["total_paneles_inventario"]
+            ),
+
+            "total_paneles_disponibles": (
+                diagnostico["total_paneles_disponibles"]
+            ),
+
+            "total_paneles_candidatos": (
+                diagnostico["total_paneles_candidatos"]
+            ),
+
+            "total_paneles_asignados": (
+                diagnostico["total_paneles_asignados"]
+            ),
+
+            "total_paneles_sin_compatibilidad": (
+                diagnostico[
+                    "total_paneles_disponibles_sin_candidato"
+                ]
+            ),
 
             "total_posiciones": resultados["total_posiciones"],
 
@@ -1755,7 +2788,6 @@ class PanelMSEApp(ctk.CTk):
             )
 
         }]
-
         # --------------------------------------------------------
         # 7. Preparar los cinco archivos CSV.
         # --------------------------------------------------------
@@ -1770,28 +2802,29 @@ class PanelMSEApp(ctk.CTk):
 
             # Tabla de asignaciones.
             "asignaciones.csv": (
-                columnas_proyecto + [
-                    "id_posicion",
-                    "ubicacion",
-                    "id_panel",
-                    "altura_panel_mm",
-                    "cota_apoyo_mm",
-                    "cota_superior_mm"
-                ],
-                agregar_identificacion(resultados["asignaciones"])
-            ),
-
+            columnas_proyecto + [
+            "orden",
+            "id_posicion",
+            "ubicacion",
+            "id_panel",
+            "altura_panel_mm",
+            "cota_apoyo_mm",
+            "cota_superior_mm"
+            ],
+               agregar_identificacion(resultados["asignaciones"])
+        ),
             # Tabla de posiciones pendientes.
             "posiciones_pendientes.csv": (
-                columnas_proyecto + [
-                    "id_posicion",
-                    "ubicacion",
-                    "cota_apoyo_mm",
-                    "altura_min_mm",
-                    "altura_max_mm",
-                    "familia_admitida"
+            columnas_proyecto + [
+            "orden",
+            "id_posicion",
+            "ubicacion",
+            "cota_apoyo_mm",
+            "altura_min_mm",
+            "altura_max_mm",
+            "familia_admitida"
                 ],
-                agregar_identificacion(filas_pendientes)
+               agregar_identificacion(filas_pendientes)
             ),
 
             # Tabla de paneles sobrantes.
@@ -1813,6 +2846,45 @@ class PanelMSEApp(ctk.CTk):
                     "total_paneles_sobrantes"
                 ],
                 agregar_identificacion(filas_resumen)
+            ),
+            # Posiciones generadas por la geometría.
+            "posiciones_geometricas.csv": (
+                columnas_proyecto + [
+                    "orden",
+                    "id_posicion_geometrica",
+                    "progresiva_inicio_m",
+                    "progresiva_fin_m",
+                    "id_posicion_csv",
+                    "ubicacion"
+                ],
+                agregar_identificacion(filas_geometricas)
+            ),
+
+            # Diagnóstico de compatibilidad por posición.
+            "diagnostico_inventario.csv": (
+                columnas_proyecto + [
+                    "orden",
+                    "id_posicion",
+                    "cantidad_candidatos",
+                    "paneles_candidatos",
+                    "no_disponibles",
+                    "familia_incompatible",
+                    "fuera_intervalo_altura",
+                    "no_cumple_paso_altura",
+                    "no_cumple_altura_inicial"
+                ],
+                agregar_identificacion(filas_diagnostico)
+            ),
+
+            # Paneles disponibles que no sirven para ninguna posición.
+            "paneles_sin_compatibilidad.csv": (
+                columnas_proyecto + [
+                    "id_panel",
+                    "altura_mm",
+                    "familia",
+                    "motivo"
+                ],
+                agregar_identificacion(filas_sin_compatibilidad)
             )
         }
 
@@ -1899,7 +2971,7 @@ class PanelMSEApp(ctk.CTk):
 
         messagebox.showinfo(
             "Exportación completada",
-            "Los cinco archivos CSV se guardaron correctamente en:\n\n"
+            "Los ocho archivos CSV se guardaron correctamente en:\n\n"
             f"{carpeta_salida}",
             parent=self
         )
@@ -2333,6 +3405,79 @@ class PanelMSEApp(ctk.CTk):
         )
 
         contenido.append(tabla_resumen)
+                # --------------------------------------------------------
+        # GEOMETRIA Y PERFIL DE ALTURAS DEL MURO
+        # --------------------------------------------------------
+
+        geometria_configurada = self.datos_geometria
+
+        contenido.append(Spacer(1, 12))
+
+        contenido.append(
+            Paragraph(
+                "Geometría y perfil de alturas del muro",
+                estilo_seccion
+            )
+        )
+
+        filas_geometria = [
+
+            [
+                "Longitud total del muro",
+                f"{geometria_configurada['longitud_muro_m']} m",
+                "Longitud de cada panel",
+                f"{geometria_configurada['longitud_panel_m']} m"
+            ],
+
+            [
+                "Paneles necesarios",
+                str(resultados["cantidad_paneles_necesarios"]),
+                "Longitud cubierta",
+                f"{resultados['longitud_cubierta_m']} m"
+            ],
+
+            [
+                "Espacio sobrante",
+                f"{resultados['espacio_sobrante_m']} m",
+                "Dirección del muro",
+                resultados["direccion_muro"]
+            ],
+
+            [
+                "Altura inicial",
+                f"{geometria_configurada['altura_inicial_m']} m",
+                "Altura final",
+                f"{geometria_configurada['altura_final_m']} m"
+            ],
+
+            [
+                "Paso de altura",
+                f"{geometria_configurada['paso_altura_m']} m",
+                "Modo de progresión",
+                resultados["modo_altura"]
+            ],
+
+            [
+                "Altura final alcanzada",
+                "Sí" if resultados["alcanza_altura_final"] else "No",
+                "Posiciones geométricas",
+                str(resultados["cantidad_paneles_necesarios"])
+            ]
+
+        ]
+
+        contenido.append(
+            crear_tabla(
+                [
+                    "Parámetro",
+                    "Resultado",
+                    "Parámetro",
+                    "Resultado"
+                ],
+                filas_geometria,
+                [190, 200, 190, 200]
+            )
+        )
         # --------------------------------------------------------
         # ACLARACIÓN SOBRE EL ALCANCE DEL PROGRAMA
         # --------------------------------------------------------
@@ -2377,6 +3522,7 @@ class PanelMSEApp(ctk.CTk):
         filas_asignaciones = [
 
             [
+                registro["orden"],
                 registro["id_posicion"],
                 registro["ubicacion"],
                 registro["id_panel"],
@@ -2394,6 +3540,7 @@ class PanelMSEApp(ctk.CTk):
             contenido.append(
                 crear_tabla(
                     [
+                        "Orden",
                         "Posición",
                         "Ubicación",
                         "Panel",
@@ -2402,7 +3549,7 @@ class PanelMSEApp(ctk.CTk):
                         "Cota superior (mm)"
                     ],
                     filas_asignaciones,
-                    [75, 155, 75, 125, 125, 200]
+                    [40, 65, 145, 65, 120, 120, 200]
                 )
             )
 
@@ -2429,6 +3576,7 @@ class PanelMSEApp(ctk.CTk):
         filas_pendientes = [
 
             [
+                posicion.orden,
                 posicion.id_posicion,
                 posicion.ubicacion,
                 posicion.cota_apoyo_mm,
@@ -2445,7 +3593,8 @@ class PanelMSEApp(ctk.CTk):
 
             contenido.append(
                 crear_tabla(
-                    [
+                     [
+                        "Orden",
                         "Posición",
                         "Ubicación",
                         "Cota apoyo (mm)",
@@ -2454,10 +3603,9 @@ class PanelMSEApp(ctk.CTk):
                         "Familia admitida"
                     ],
                     filas_pendientes,
-                    [75, 150, 120, 125, 125, 160]
-                )
+                    [40, 65, 135, 110, 110, 110, 130]
             )
-
+            )
         else:
 
             contenido.append(
@@ -2510,6 +3658,185 @@ class PanelMSEApp(ctk.CTk):
                 Paragraph(
                     "No hay paneles sobrantes.",
                     estilo_celda
+                )
+            )
+
+        # --------------------------------------------------------
+        # 11. DIAGNOSTICO DEL INVENTARIO
+        # --------------------------------------------------------
+
+        diagnostico = resultados["diagnostico_asignacion"]
+
+        contenido.append(Spacer(1, 12))
+
+        contenido.append(
+            Paragraph(
+                "Diagnóstico de compatibilidad del inventario",
+                estilo_seccion
+            )
+        )
+
+        rechazos_por_orden = {
+            registro["orden"]: registro.get("motivos", {})
+            for registro in diagnostico["rechazos_por_posicion"]
+        }
+
+        filas_diagnostico = []
+
+        nombres_motivos = {
+            "no_disponible": "No disponible",
+            "familia_incompatible": "Familia incompatible",
+            "fuera_intervalo_altura": "Fuera del intervalo",
+            "no_cumple_paso_altura": "No cumple el paso",
+            "no_cumple_altura_inicial": "No cumple altura inicial"
+        }
+
+        for candidato in diagnostico["candidatos_por_posicion"]:
+
+            orden = candidato["orden"]
+
+            motivos = rechazos_por_orden.get(orden, {})
+
+            detalles = []
+
+            for clave, nombre in nombres_motivos.items():
+
+                ids_rechazados = motivos.get(clave, [])
+
+                if ids_rechazados:
+
+                    detalles.append(
+                        f"{nombre}: {', '.join(ids_rechazados)}"
+                    )
+
+            texto_candidatos = (
+                ", ".join(candidato["ids_paneles_candidatos"])
+                if candidato["ids_paneles_candidatos"]
+                else "Ninguno"
+            )
+
+            texto_rechazos = (
+                "; ".join(detalles)
+                if detalles
+                else "Sin rechazos"
+            )
+
+            filas_diagnostico.append([
+                orden,
+                candidato["id_posicion"],
+                candidato["cantidad_candidatos"],
+                texto_candidatos,
+                texto_rechazos
+            ])
+
+        if filas_diagnostico:
+
+            contenido.append(
+                crear_tabla(
+                    [
+                        "Orden",
+                        "Posición",
+                        "Candidatos",
+                        "Paneles compatibles",
+                        "Motivos de rechazo"
+                    ],
+                    filas_diagnostico,
+                    [35, 65, 75, 180, 425]
+                )
+            )
+
+        else:
+
+            contenido.append(
+                Paragraph(
+                    "No hay posiciones disponibles para el diagnóstico.",
+                    estilo_celda
+                )
+            )
+
+        # --------------------------------------------------------
+        # 12. PANELES DISPONIBLES SIN COMPATIBILIDAD
+        # --------------------------------------------------------
+
+        contenido.append(
+            Paragraph(
+                "Paneles disponibles sin posición compatible",
+                estilo_seccion
+            )
+        )
+
+        paneles_sin_compatibilidad = diagnostico[
+            "paneles_disponibles_sin_candidato"
+        ]
+
+        filas_sin_compatibilidad = [
+
+            [
+                panel.id_panel,
+                panel.altura_mm,
+                panel.familia
+            ]
+
+            for panel in paneles_sin_compatibilidad
+
+        ]
+
+        if filas_sin_compatibilidad:
+
+            contenido.append(
+                crear_tabla(
+                    [
+                        "Identificador del panel",
+                        "Altura (mm)",
+                        "Familia"
+                    ],
+                    filas_sin_compatibilidad,
+                    [220, 200, 220]
+                )
+            )
+
+        else:
+
+            contenido.append(
+                Paragraph(
+                    "Todos los paneles disponibles tienen "
+                    "compatibilidad con al menos una posición.",
+                    estilo_celda
+                )
+            )
+
+        # --------------------------------------------------------
+        # 13. ADVERTENCIAS DE LA ASIGNACION
+        # --------------------------------------------------------
+
+        contenido.append(
+            Paragraph(
+                "Advertencias del procesamiento",
+                estilo_seccion
+            )
+        )
+
+        advertencias = resultados.get("advertencias", [])
+
+        if advertencias:
+
+            for advertencia in advertencias:
+
+                contenido.append(
+                    Paragraph(
+                        "• " + texto_seguro(advertencia),
+                        estilo_nota
+                    )
+                )
+
+                contenido.append(Spacer(1, 4))
+
+        else:
+
+            contenido.append(
+                Paragraph(
+                    "No se generaron advertencias.",
+                    estilo_nota
                 )
             )
 
