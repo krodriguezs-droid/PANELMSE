@@ -131,7 +131,7 @@ PANELMSE es un proyecto académico desarrollado por un equipo. Antes de subir ca
 
 No subas al repositorio archivos CSV, PDF o informes que contengan datos reales, nombres de clientes, información personal o información confidencial. Para ejemplos y pruebas compartidas, utiliza datos sintéticos.
 
-#EXPERIENCIA
+## EXPERIENCIA
 
 Durante el desarrollo del proyecto PANELMSE tuvimos la oportunidad de llevar un problema relacionado con la ingeniería civil a una solución práctica mediante programación en Python. El problema consistía en asignar paneles prefabricados de un muro MSE a las posiciones que podían recibirlos, procurando cubrir la mayor cantidad de posiciones posible sin utilizar paneles incompatibles ni modificar las condiciones de diseño. Al principio, el reto no era solamente escribir código: primero debíamos comprender el problema, definir qué información necesitaba el programa y establecer reglas que pudieran comprobarse con ejemplos.
 
